@@ -163,11 +163,11 @@ class Transcriber:
                 #print(f"Requested transcription of {filename}")
             except Exception as e:
                 logging.exception(f"Error transcribing {filename}:",exc_info=e)
-    def report_ctm(self):
-        report_file_name = self.config.getValue("Transcriptions", "stt_transcriptions_file_ctm")
+    def report_ctm(self, transcriptions_filename):
+        ctm_file = os.path.splitext(transcriptions_filename)[0]+".ctm"
         data = self.transcriptions.getData()
 
-        print(f"Attempting to create ctm file from transcriptions")
+        logging.info(f"Attempting to create ctm file from transcriptions")
 
         entries = []
         for filename in sorted(data.keys()):            
@@ -178,16 +178,15 @@ class Transcriber:
             for word in transcript.split():
                 entries.append(filename.replace(' ','_') + " 1 0 -1 " + word)
                 #print(filename, "1 0 -1", word)
-        self.write_to_file(entries,report_file_name)
-        print(f"Created ctm file - {report_file_name}")
+        self.write_to_file(entries,ctm_file)
+        logging.info(f"Created ctm file - {ctm_file}")
 
-    def report_stm(self):
-        reference_file_name = self.config.getValue("Transcriptions", "reference_transcriptions_file")
-        report_file_name = self.config.getValue("Transcriptions", "stt_transcriptions_file_stm")
+    def report_stm(self, transcriptions_filename, reference_file_name):
+        stm_file = os.path.splitext(transcriptions_filename)[0]+".stm"
         if reference_file_name is not None:
             try:
                 if path.exists(reference_file_name):
-                    print(f"Found reference transcriptions file - {reference_file_name} - attempting to create stm file")
+                    logging.info(f"Found reference transcriptions file - {reference_file_name} - attempting to create stm file")
                     ref_df = pd.read_csv(reference_file_name)
                     ref_df = ref_df.sort_values(by = 'Audio File Name')
                     ref_df.insert(1,"num1",pd.Series([1 for x in range(len(ref_df.index))]))
@@ -200,23 +199,22 @@ class Transcriber:
                     new_lines = []
                     for line in lines:
                         new_lines.append(line.lstrip())
-                    self.write_to_file(new_lines, report_file_name)
-                    print(f"Created stm file - {report_file_name}")
+                    self.write_to_file(new_lines, stm_file)
+                    logging.info(f"Created stm file - {stm_file}")
                      
             except Exception as e:
-                print(f"Warning - Failed to create stm file {report_file_name}:",e)
+                logging.exception(f"Warning - Failed to create stm file {stm_file}:",e)
 
-    def report_csv(self):
-        report_file_name = self.config.getValue("Transcriptions", "stt_transcriptions_file")
+    def report_csv(self, transcriptions_filename):
         csv_columns = ['Audio File Name','Transcription']
         #print(self.transcriptions.getData())
         data = self.transcriptions.getData()
 
-        with open(report_file_name, 'w', encoding='utf-8-sig') as csvfile:
+        with open(transcriptions_filename, 'w', encoding='utf-8-sig') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(csv_columns)
             writer.writerows(data.items())
-            logging.info(f"Wrote transcriptions for {len(data)} audio files to {report_file_name}")
+            logging.info(f"Wrote transcriptions for {len(data)} audio files to {transcriptions_filename}")
 
         reference_file_name = self.config.getValue("Transcriptions", "reference_transcriptions_file")
         if reference_file_name is not None:
@@ -224,7 +222,7 @@ class Transcriber:
                 if path.exists(reference_file_name):
                     logging.debug(f"Found reference transcriptions file - {reference_file_name} - attempting merge with model's transcriptions")
 
-                    file1_df = pd.read_csv(report_file_name)
+                    file1_df = pd.read_csv(transcriptions_filename)
                     file1_df = file1_df.sort_values(by = 'Audio File Name')
                     file2_df = pd.read_csv(reference_file_name)
                     file2_df = file2_df.sort_values(by = 'Audio File Name')
@@ -245,26 +243,17 @@ class Transcriber:
                         comparison_result = pd.merge(file1_df,file2_df, on='Audio File Name', how='outer')
                         #print(comparison_result)
 
-                        comparison_result.to_csv(report_file_name, index=False)
-                        logging.info(f"Updated {report_file_name} with reference transcriptions")
+                        comparison_result.to_csv(transcriptions_filename, index=False)
+                        logging.info(f"Updated {transcriptions_filename} with reference transcriptions")
             except Exception as e:
-                print(f"Warning - Failed to merge reference transcriptions into {report_file_name}:",e)
+                logging.exception(f"Warning - Failed to merge reference transcriptions into {transcriptions_filename}:",e)
 
     def write_to_file(self, entries, filename):
         with open(filename, "wt", encoding="utf-8") as f:
             for entry in entries:
                 f.write(entry + "\n") 
-                
-def main():
-    config_file = "config.ini"
-    if len(sys.argv) > 1:
-       config_file = sys.argv[1]
-    else:
-       print("Using default config filename: config.ini.")
 
-    run(config_file)
-
-def run(config_file:str):
+def run(config_file:str, logging_level:str=DEFAULT_LOGLEVEL):
     config      = Config(config_file)
     transcriber = Transcriber(config)
 
@@ -295,9 +284,15 @@ def run(config_file:str):
     else:
         logging.info(f"Completed transcribing {complete_files} files out of {total_files}")
 
-    transcriber.report_csv()
-    transcriber.report_ctm()
-    transcriber.report_stm()
+    transcriptions_filename = transcriber.config.getValue("Transcriptions", "stt_transcriptions_file")
+    reference_file_name = transcriber.config.getValue("Transcriptions", "reference_transcriptions_file")
+
+    transcriber.report_csv(transcriptions_filename)
+
+    sclite_directory = transcriber.config.getValue("ErrorRateOutput", "sclite_directory")
+    if sclite_directory:
+        transcriber.report_ctm(transcriptions_filename)
+        transcriber.report_stm(transcriptions_filename, reference_file_name)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
