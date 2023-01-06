@@ -2,10 +2,11 @@
 Utilities for
 * [Transcribing](#transcription) a set of audio files with Speech to Text (STT)
 * [Analyzing](#analysis) the error rate of the STT transcription against a known-good transcription
+* [Experimenting](#experimenting) with various parameters to find optimal values
 
 ## More documentation
 This readme describes the tools in depth.  For more information on use cases and methodology, please see the following articles:
-* [New Python Scripts to Measure Word Error Rate on Watson Speech to Text](https://medium.com/@marconoel/new-python-scripts-to-measure-word-error-rate-on-watson-speech-to-text-77ecaa513f60): How to use these tools, including a YouTube video demonstration 
+* [New Python Scripts to Measure Word Error Rate on Watson Speech to Text](https://medium.com/@marconoel/new-python-scripts-to-measure-word-error-rate-on-watson-speech-to-text-77ecaa513f60): How to use these tools, including a YouTube video demonstration
 * [New Speech Testing Utilities for Conversational AI Projects](https://medium.com/ibm-watson-speech-services/new-speech-testing-utilities-for-conversational-ai-projects-bf73debe19be): Describes recipe for using Text to Speech to "bootstrap" testing data
 * [Data Collection and Training for Speech Projects](https://medium.com/ibm-data-ai/data-collection-and-training-for-speech-projects-22004c3e84fb): How to collect test data from human voices.
 * [How to Train your Speech to Text Dragon](https://medium.com/ibm-watson/watson-speech-to-text-how-to-train-your-own-speech-dragon-part-1-data-collection-and-fdd8cea4f4b8)
@@ -45,6 +46,16 @@ cp config.ini.sample config.ini
 
 Each sub-sections will describe what configuration parameters are needed.
 
+# Generic Command-Line parameters
+
+`--config_file` or `-c` is the configuration file to be used. The default is `config.ini`
+
+`--log_level` or `-ll` is the log level to be used when running the script. Supported levels are as follows:
+- `ERROR` -- Print out only when things fail.
+- `WARN` -- Print out cautions and when things fail.
+- `INFO` -- (Default) Print out useful status, cautions, and when things fail.
+- `DEBUG` -- Print out every possible message.
+
 # Transcription
 Uses IBM Watson Speech to Text service to transcribe a folder full of audio files.  Creates a CSV with transcriptions.
 
@@ -59,6 +70,7 @@ Required configuration parameters:
 * base_model_name - Base model for Speech to Text transcription
 
 Optional configuration parameters:
+* max_threads - Maximum number of threads to use with `transcribe.py` to improve performance.
 * language_model_id - Language model customization ID (comment out to use base model)
 * acoustic_model_id - Acoustic model customization ID (comment out to use base model)
 * grammar_name - Grammar name (comment out to use base model)
@@ -73,8 +85,10 @@ Optional configuration parameters:
 Assuming your configuration is in `config.ini`, transcribe all the audio files in `audio_file_folder` parameter via the following command:
 
 ```
-python transcribe.py config.ini
+python transcribe.py --config_file config.ini --log_level DEBUG
 ```
+
+See [Generic Command Line Parameters](#generic-command-line-parameters) for more details.
 
 ## Output
 Transcription will be stored in a CSV file based on `stt_transcriptions_file` parameter with a format like below:
@@ -95,23 +109,10 @@ Your config file must have references for the `reference_transcriptions_file` an
 * **Reference file** (`reference_transcriptions_file`) is a CSV file with at least columns called `Audio File Name` and `Reference`.  The `Reference` is the actual transcription of the audio file (also known as the "ground truth" or "labeled data"). NOTE: In your audio file name, make sure you put the full path (eg. ./audio1.wav)
 * **Hypothesis file** (`stt_transcriptions_file`) is a CSV file with at least columns called `Audio File Name` and `Hypothesis`.  The `Hypothesis` is the transcription of the audio file by the Speech to Text engine.  The `transcribe.py` script can create this file.
 
-## Execution
-
-```
-python analyze.py config.ini
-```
-
-# Experiment
-Use the experiment.py script to execute a series of Transcription/Analyze experiments where configuration settings may change for each experiment.  This option will require customization to set up for the specific configuration to be tested.  Changes should be made in the run_all_experiments function.
-
-```
-python experiment.py config.ini
-```
-
 ## Results
-The script creates two output files, in the file names specified by the `details_file` and `summary_file` properties.
 * **Details** (`details_file`) is a CSV file with rows for each audio sample, including reference and hypothesis transcription and specific transcription errors
 * **Summary** (`summary_file`) is a JSON file with metrics for total transcriptions and overall word and sentence error rates.
+* **Accuracy** (`word_accuracy_file`) is a CSV file with rows
 
 ## Metrics (Definitions)
 - WER (word error rate), commonly used in ASR assessment, measures the cost of restoring the output word sequence to the original input sequence.
@@ -123,6 +124,44 @@ Repo of the Python module JIWER: https://pypi.org/project/jiwer/
 
 It computes the minimum-edit distance between the ground-truth sentence and the hypothesis sentence of a speech-to-text API.
 The minimum-edit distance is calculated using the python C module python-Levenshtein.
+
+## Execution
+
+```
+python analyze.py --config_file config.ini --log_level DEBUG
+```
+
+See [Generic Command Line Parameters](#generic-command-line-parameters) for more details.
+
+# Experimenting
+Use the `experiment.py` script to execute a series of Transcription/Analyze experiments to optimize SpeechToText parameters. 
+
+## Setup
+
+Follow the setup for [Transcribing](#transcription).
+
+Follow the setup for [Analyzing](#analysis).
+
+The following parameters in `[Experiments]` all have a `*_min` and `*_max` variant to specify the lower limit and upper limit, respectively, for its corresponding `[SpeechToText]` parameter, and a `*_step` variant to specify the amount to increase that parameter in each experiment:
+1. `sds_*` controls the `speech_detector_sensitivity` parameter
+1. `bias_*` controls the `character_insertion_bias` parameter
+1. `cust_weight_*` controls the `customization_weight` parameter
+1. `bas_*` controls the `background_audio_suppression`parameter
+
+## Execution
+
+```
+python experiment.py --config_file config.ini --log_level INFO
+```
+
+See [Generic Command Line Parameters](#generic-command-line-parameters) for more details.
+
+## Results
+Each experiment creates a unique directory based on the parameters of that experiment in the format `bias + "_" + weight + "_" + sds + "_" + bas`.
+
+For each experiment the output files from [Transcribing](#transcription) and [Analyzing](#analysis) will be created in its unique output directory. 
+
+There will be a final file created called `all_summaries.csv` that contains the summary of all experiments in a single CSV.   
 
 # Model training
 The `models.py` script has wrappers for many model-related tasks including creating models, updating training contents, getting model details, and training models.
@@ -187,7 +226,7 @@ Note some parameter combinations are not possible.  The operations supported all
 # Sample setup for organizing multiple experiments
 Instructions for creating a directory structure for organizing input and output files for experiments for multiple models. Creating a new directory structure is recommend for each new model being experimented/tested. A sample `MemberID` model is shown.
 1. Start from root of WER tool directory, `cd WATSON-STT-WER-PYTHON`
-1. Create project directory, `mkdir -p <project name>` 
+1. Create project directory, `mkdir -p <project name>`
     1. e.g. `mkdir -p ClientName-data`
 1. Create audio directory, `mkdir -p <project name>/audios/<audio type>`
     1. e.g. `mkdir -p ClientName-data/audios/audio.memberID`
@@ -196,7 +235,7 @@ Instructions for creating a directory structure for organizing input and output 
 1. Create referemce transcriptions directory, `mkdir -p <project name>/reference_transcriptions`
     1. e.g. `mkdir -p ClientName-data/reference_transcriptions`
     1. copy/upload transcription file to directory
-        1. e.g. `cp/temp/transcriptions/reference_transcription_memberID.csv ClientName-data/reference_transcriptions` 
+        1. e.g. `cp/temp/transcriptions/reference_transcription_memberID.csv ClientName-data/reference_transcriptions`
 1. Create experiments directory, `mkdir -p <project name>/experiments/<model description base>/<model detail>`
     1. e.g. `mkdir -p ClientName-data/experiments/telephony_base/MemberID/`
 1. Copy sample config file over to directory
